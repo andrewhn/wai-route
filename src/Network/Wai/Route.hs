@@ -7,6 +7,7 @@
 module Network.Wai.Route
     ( Handler
     , route
+    , routeWith404
     ) where
 
 import Data.ByteString (ByteString)
@@ -24,15 +25,33 @@ type Handler m = [(ByteString, ByteString)]        -- ^ The captured path parame
                -> (Response -> m ResponseReceived) -- ^ The continuation.
                -> m ResponseReceived
 
+-- | A 'NotFoundHandler' is equivalent to a handler but receives
+-- no matched parameters
+type NotFoundHandler m = Request
+                       -> (Response -> m ResponseReceived)
+                       -> m ResponseReceived
+
 -- | Routes requests to 'Handler's according to a routing table.
+-- No match defaults to empty 404 response
 route :: Monad m
       => [(ByteString, Handler m)]
       -> Request
       -> (Response -> m ResponseReceived)
       -> m ResponseReceived
-route rs rq k = case lookup (fromList rs) segs of
-    Just  e -> value e (captured $ captures e) rq k
-    Nothing -> k notFound
+route rs rq k = routeWith404 rs nfh rq k
   where
-    segs     = segments (rawPathInfo rq)
-    notFound = responseLBS status404 [] L.empty
+    nfh _ k = k $ responseLBS status404 [] L.empty
+
+-- | Routes requests to 'Handler's according to a routing table.
+routeWith404 :: Monad m
+             => [(ByteString, Handler m)]
+             -> NotFoundHandler m
+             -> Request
+             -> (Response -> m ResponseReceived)
+             -> m ResponseReceived
+routeWith404 rs nfh rq k =
+  case lookup (fromList rs) segs of
+    Just  e -> value e (captured $ captures e) rq k
+    Nothing -> nfh rq k
+  where
+    segs = segments (rawPathInfo rq)
